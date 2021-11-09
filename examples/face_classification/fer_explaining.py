@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from paz.datasets.utils import get_class_names
 from paz.abstract import ProcessingSequence
 from pipelines import ProcessGrayImage
-from paz.datasets import FER
+from paz.datasets import FER, FERPlus
 from paz.models.classification import MiniXception
 
 description = 'Emotion recognition training'
@@ -24,22 +24,23 @@ parser.add_argument('-m', '--model', default='MINI-XCEPTION', type=str,
                     choices=['MINI-XCEPTION'])
 args = parser.parse_args()
 size = 48
-num_classes = 7
 batch_size = 1
-dataset = 'FER'
-data_path = os.path.join(args.data_path, args.dataset)
+dataset = args.dataset
+data_path = os.path.join(args.data_path, dataset)
+num_classes = 7 if dataset=='FER' else 8
 
 pipeline = ProcessGrayImage(size=size, num_classes=num_classes)
-name_to_manager = {'FER': FER}
+name_to_manager = {'FER': FER, 'FERPlus': FERPlus}
 data_manager = name_to_manager[dataset](path=data_path, split='train')
 data = data_manager.load_data()
 sequence = ProcessingSequence(pipeline, batch_size, data)
 
-model = MiniXception((size, size, 1), num_classes, weights='FER')
+model = MiniXception((size, size, 1), num_classes, weights=dataset)
 
 for n, i in enumerate(sequence):
     print("######")
     image = i[0]['image']
+    print(np.max(image), np.min(image))
     label = i[1]['label']
     plt.imsave('im' + str(n)+'.jpg', image[0][..., 0])
     x = model(image)

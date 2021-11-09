@@ -5,24 +5,45 @@ from datetime import datetime
 
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from tensorflow import keras
+from tensorflow.keras.applications.efficientnet import EfficientNetB0
+from tensorflow.keras.layers import Flatten, Dense
+from tensorflow.keras.models import Model
 
-from paz.abstract import ProcessingSequence
+from paz.abstract import ProcessingSequence, SequentialProcessor
 from paz.datasets import FER, FERPlus
-from paz.models import MiniXception
-from pipelines import ProcessGrayImage
+import paz.processors as pr
+
+
+class ProcessGrayImage(SequentialProcessor):
+    def __init__(self, size, num_classes, generator=None):
+        super(ProcessGrayImage, self).__init__()
+        self.size = size
+        self.process = SequentialProcessor([pr.ExpandDims(-1)])
+        if generator is not None:
+            self.process.add(pr.ImageDataProcessor(generator))
+        self.process.add(pr.ResizeImage((size, size)))
+        self.process.add(pr.CastImage(float))
+        self.process.add((pr.ExpandDims(-1)))
+        self.process.add(pr.Stacker(-1))
+        self.add(pr.UnpackDictionary(['image', 'label']))
+        self.add(pr.ExpandDomain(self.process))
+        self.add(pr.SequenceWrapper({0: {'input_1': [size, size, 3]}},
+                                    {1: {'dense_1': [num_classes]}}))
 
 description = 'Emotion recognition training'
 parser = argparse.ArgumentParser(description=description)
 parser.add_argument('-s', '--save_path', default='experiments', type=str,
                     help='Path for saving evaluations')
-parser.add_argument('-d', '--dataset', default='FERPlus', type=str,
+parser.add_argument('-d', '--dataset', default='FER', type=str,
                     choices=['FERPlus', 'FER'])
-parser.add_argument('-m', '--model', default='MINI-XCEPTION', type=str,
-                    choices=['MINI-XCEPTION'])
-parser.add_argument('-b', '--batch_size', default=2, type=int,
+parser.add_argument('-m', '--model', default='EfficientNetB0', type=str,
+                    choices=['EfficientNetB0'])
+parser.add_argument('-b', '--batch_size', default=16, type=int,
                     help='Batch size used during optimization')
 parser.add_argument('-e', '--epochs', default=100, type=int,
                     help='Number of epochs before finishing')
+parser.add_argument('-lr', '--learning_rate', default=0.001, type=float,
+                    help='Learning rate')
 parser.add_argument('-o', '--stop_patience', default=5, type=int,
                     help='Early stop patience')
 parser.add_argument('-u', '--reduce_patience', default=2, type=int,
@@ -40,10 +61,13 @@ parser.add_argument('-p', '--data_path', type=str,
                             'paz_versions/fer/fer2013/',
                     help='Default root data path')
 args = parser.parse_args()
+learning_rate = args.learning_rate
 
 splits = ['train'] + args.evaluation_splits
 if args.validation_split not in splits:
     splits = splits + [args.validation_split]
+
+print('Splits of data for loading: ', splits)
 
 # loading data and instantiating data managers
 name_to_manager = {'FER': FER, 'FERPlus': FERPlus}
@@ -76,11 +100,21 @@ for split in splits:
         pipeline, args.batch_size, datasets[split])
 
 # instantiating model
-name_to_model = {'MINI-XCEPTION': MiniXception}
-Model = name_to_model[args.model]
-input_shape = pipeline.processors[-1].inputs_info[0]['image']
-num_classes = pipeline.processors[-1].labels_info[1]['label'][0]
-model = Model(input_shape, num_classes)
+name_to_model = {'EfficientNetB0': EfficientNetB0}
+base_model = name_to_model[args.model]
+input_shape = pipeline.processors[-1].inputs_info[0]['input_1']
+num_classes = pipeline.processors[-1].labels_info[1]['dense_1'][0]
+
+print('Dataset stats: ', num_classes, input_shape)
+
+base_model = base_model(input_shape=tuple(input_shape), classes=num_classes,
+                        include_top=False)
+for layer in base_model.layers:
+    layer.trainable = True
+x = Flatten()(base_model.output)
+x = Dense(1000, activation='relu')(x)
+out = Dense(num_classes, activation='softmax')(x)
+model = Model(inputs=base_model.input, outputs=out)
 model.compile(loss=keras.losses.categorical_crossentropy,
               optimizer=keras.optimizers.Adam(),
               metrics=['accuracy'])

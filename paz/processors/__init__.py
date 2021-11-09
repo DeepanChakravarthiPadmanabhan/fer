@@ -79,6 +79,7 @@ from .standard import SequenceWrapper
 from .standard import Predict
 from .standard import ToClassName
 from .standard import ExpandDims
+from .standard import Stacker
 from .standard import BoxClassToOneHotVector
 from .standard import Squeeze
 from .standard import Copy

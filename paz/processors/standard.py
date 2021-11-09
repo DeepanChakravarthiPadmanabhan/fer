@@ -274,6 +274,20 @@ class ExpandDims(Processor):
         return np.expand_dims(x, self.axis)
 
 
+class Stacker(Processor):
+    """Expand dimension of given array.
+
+    # Arguments
+        axis: Int.
+    """
+    def __init__(self, axis):
+        super(Stacker, self).__init__()
+        self.axis = axis
+
+    def call(self, x):
+        return np.repeat(x, 3, axis=self.axis)
+
+
 class SelectElement(Processor):
     """Selects element of input value.
 
